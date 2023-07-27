@@ -1,16 +1,32 @@
-package repository
+package dal
 
 import (
-	"bank/bank-infrastructure/internal/repository/model"
+	"bank/internal/dal/repository"
+	"bank/internal/dal/repository/model"
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 )
 
-func (db *dbConnection) CreateAccount(ctx context.Context, input model.Account) (model.Account, error) {
+type accountConn interface {
+	Exec(ctx context.Context, query string, args ...interface{}) (int64, error)
+	ExecAccountQuery(ctx context.Context, query string, args ...interface{}) (model.Account, error)
+	SelectAccountQuery(ctx context.Context, query string, args ...interface{}) ([]model.Account, error)
+}
+
+type DalAccount struct {
+	db accountConn
+}
+
+func NewAccountDb(db repository.PgConnection) DalAccount {
+	return DalAccount{
+		db: db,
+	}
+}
+
+func (con *DalAccount) CreateAccount(ctx context.Context, input model.Account) (model.Account, error) {
 	args := []interface{}{input.Owner, input.Balance, input.Currency}
 	query := `
 		INSERT INTO public.accounts (
@@ -19,19 +35,22 @@ func (db *dbConnection) CreateAccount(ctx context.Context, input model.Account) 
 		  currency
 		) VALUES (
 		  $1, $2, $3
-		) RETURNING *;
+		) RETURNING	
+			id,
+			owner,
+			balance,
+			currency,
+			createdAt;
 	`
-
-	row := db.conn.QueryRowxContext(ctx, query, args)
-	var newAccount model.Account
-	err := row.Scan(&newAccount)
+	resp, err := con.db.ExecAccountQuery(ctx, query, args)
 	if err != nil {
-		log.Fatalln("error scanning new account added: ", err)
+		return resp, err
 	}
-	return newAccount, err
+
+	return resp, nil
 }
 
-func (db *dbConnection) GetAccounts(ctx context.Context, input map[string]interface{}) ([]model.Account, error) {
+func (con *DalAccount) GetAccounts(ctx context.Context, input map[string]interface{}) ([]model.Account, error) {
 	query := `
 			SELECT 
 			    id,
@@ -64,25 +83,16 @@ func (db *dbConnection) GetAccounts(ctx context.Context, input map[string]interf
 			OFFSET ` + offset
 	}
 
-	rows, err := db.conn.QueryContext(ctx, query)
+	accounts, err := con.db.SelectAccountQuery(ctx, query)
 	if err != nil {
 		return nil, err
-	}
-	var accounts []model.Account
-	defer rows.Close()
-	for rows.Next() {
-		var account model.Account
-		err := rows.Scan(&account)
-		if err != nil {
-			return nil, err
-		}
-		accounts = append(accounts, account)
 	}
 
 	return accounts, nil
 }
 
-func (db *dbConnection) UpdateAccount(ctx context.Context, input model.Account) (model.Account, error) {
+// todo this should be update balance method
+func (con *DalAccount) UpdateAccount(ctx context.Context, input model.Account) (model.Account, error) {
 	if input.Balance == nil {
 		return model.Account{}, errors.New("balance is a value needed")
 	}
@@ -107,21 +117,15 @@ func (db *dbConnection) UpdateAccount(ctx context.Context, input model.Account) 
 			createdAt
 	`, strings.Join(set, ", "))
 
-	row, err := db.conn.QueryContext(ctx, query, args)
+	resp, err := con.db.ExecAccountQuery(ctx, query, args)
 	if err != nil {
-		return model.Account{}, err
+		return resp, err
 	}
 
-	var accountUpdated model.Account
-	err = row.Scan(&accountUpdated)
-	if err != nil {
-		log.Fatalln("error scanning new account added: ", err)
-	}
-
-	return accountUpdated, err
+	return resp, nil
 }
 
-func (db *dbConnection) DeleteAccount(ctx context.Context, input model.Account) error {
+func (con *DalAccount) DeleteAccount(ctx context.Context, input model.Account) error {
 	if input.Id == nil {
 		return errors.New("id is a value needed")
 	}
@@ -134,6 +138,7 @@ func (db *dbConnection) DeleteAccount(ctx context.Context, input model.Account) 
 		WHERE
 			id = $1
 		`
-	_, err := db.conn.QueryContext(ctx, query, args)
+
+	_, err := con.db.Exec(ctx, query, args)
 	return err
 }
