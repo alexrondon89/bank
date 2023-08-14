@@ -4,6 +4,7 @@ CREATE TABLE accounts (
                             "balance" bigint NOT NULL,
                             "currency" varchar(255)  NOT NULL,
                             "created_at" timestamptz NOT NULL DEFAULT (now())
+                            "updated_at" timestamptz NOT NULL DEFAULT (now())
 );
 
 CREATE TABLE entries (
@@ -11,6 +12,7 @@ CREATE TABLE entries (
                            "account_id" bigint,
                            "amount" bigint NOT NULL,
                            "created_at" timestamptz NOT NULL DEFAULT (now())
+                           "updated_at" timestamptz NOT NULL DEFAULT (now())
 );
 
 CREATE TABLE transfers (
@@ -18,7 +20,8 @@ CREATE TABLE transfers (
                              "from_account_id" bigint,
                              "to_account_id" bigint,
                              "amount" bigint NOT NULL,
-                             created_at timestamptz NOT NULL DEFAULT (now())
+                             "created_at" timestamptz NOT NULL DEFAULT (now())
+                             "updated_at" timestamptz NOT NULL DEFAULT (now())
 );
 
 ALTER TABLE entries ADD FOREIGN KEY ("account_id") REFERENCES "accounts" ("id");

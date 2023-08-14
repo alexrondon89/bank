@@ -1,7 +1,6 @@
 package dal
 
 import (
-	"bank/internal/dal/repository"
 	"bank/internal/dal/repository/model"
 	"context"
 	"errors"
@@ -10,23 +9,23 @@ import (
 	"strings"
 )
 
-type accountConn interface {
+type AccountDbInterface interface {
 	Exec(ctx context.Context, query string, args ...interface{}) (int64, error)
-	ExecAccountQuery(ctx context.Context, query string, args ...interface{}) (model.Account, error)
-	SelectAccountQuery(ctx context.Context, query string, args ...interface{}) ([]model.Account, error)
+	ExecAccountQuery(ctx context.Context, query string, args ...interface{}) (model.AccountResult, error)
+	SelectAccountQuery(ctx context.Context, query string, args ...interface{}) ([]model.AccountResult, error)
 }
 
 type DalAccount struct {
-	db accountConn
+	db AccountDbInterface
 }
 
-func NewAccountDb(db repository.PgConnection) DalAccount {
+func NewAccountDb(db AccountDbInterface) DalAccount {
 	return DalAccount{
 		db: db,
 	}
 }
 
-func (con *DalAccount) CreateAccount(ctx context.Context, input model.Account) (model.Account, error) {
+func (con *DalAccount) CreateAccount(ctx context.Context, input model.AccountParams) (model.AccountResult, error) {
 	args := []interface{}{input.Owner, input.Balance, input.Currency}
 	query := `
 		INSERT INTO public.accounts (
@@ -50,7 +49,7 @@ func (con *DalAccount) CreateAccount(ctx context.Context, input model.Account) (
 	return resp, nil
 }
 
-func (con *DalAccount) GetAccounts(ctx context.Context, input map[string]interface{}) ([]model.Account, error) {
+func (con *DalAccount) GetAccounts(ctx context.Context, input model.AccountParams) ([]model.AccountResult, error) {
 	query := `
 			SELECT 
 			    id,
@@ -61,9 +60,9 @@ func (con *DalAccount) GetAccounts(ctx context.Context, input map[string]interfa
 			FROM public.accounts 
 	`
 
-	if ids, ok := input["ids"]; ok {
+	if input.Ids != nil {
 		var strIds []string
-		for _, value := range ids.([]int32) {
+		for _, value := range input.Ids {
 			strIds = append(strIds, strconv.Itoa(int(value)))
 		}
 		query += `
@@ -71,16 +70,16 @@ func (con *DalAccount) GetAccounts(ctx context.Context, input map[string]interfa
 		`
 	}
 
-	limit := `1`
-	if value, ok := input["limit"].(string); ok {
-		limit = value
+	limit := 10
+	if input.Limit != nil {
+		limit = *input.Limit
 	}
 
-	query += `LIMIT ` + limit
+	query += `LIMIT ` + strconv.Itoa(limit)
 
-	if offset, ok := input["offset"].(string); ok {
+	if input.Offset != nil {
 		query += `
-			OFFSET ` + offset
+			OFFSET ` + strconv.Itoa(*input.Offset)
 	}
 
 	accounts, err := con.db.SelectAccountQuery(ctx, query)
@@ -91,17 +90,17 @@ func (con *DalAccount) GetAccounts(ctx context.Context, input map[string]interfa
 	return accounts, nil
 }
 
-// todo this should be update balance method
-func (con *DalAccount) UpdateAccount(ctx context.Context, input model.Account) (model.Account, error) {
+// todo this should update balance method
+func (con *DalAccount) UpdateAccount(ctx context.Context, input model.AccountParams) (model.AccountResult, error) {
 	if input.Balance == nil {
-		return model.Account{}, errors.New("balance is a value needed")
+		return model.AccountResult{}, errors.New("balance is a value needed")
 	}
 
 	var args []interface{}
 	var set []string
 
 	set = append(set, `balance = $1`)
-	args = append(args, *input.Balance, *input.Id)
+	args = append(args, *input.Balance, input.Ids[0])
 	query := fmt.Sprintf(`
 		UPDATE	
 			public.accounts
@@ -125,13 +124,13 @@ func (con *DalAccount) UpdateAccount(ctx context.Context, input model.Account) (
 	return resp, nil
 }
 
-func (con *DalAccount) DeleteAccount(ctx context.Context, input model.Account) error {
-	if input.Id == nil {
+func (con *DalAccount) DeleteAccount(ctx context.Context, input model.AccountParams) error {
+	if len(input.Ids) == 0 {
 		return errors.New("id is a value needed")
 	}
 
 	var args []interface{}
-	args = append(args, *input.Id)
+	args = append(args, input.Ids[0])
 	query := `
 		DELETE FROM	
 			public.accounts
